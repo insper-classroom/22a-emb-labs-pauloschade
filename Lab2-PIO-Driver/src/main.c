@@ -210,7 +210,7 @@ const uint32_t ul_mask)
 
 void _delay_ms(int ms)
 {
-	for (int i = 0; i < ms * 115000; i++)
+	for (int i = 0; i < ms * 150000; i++)
 	{
 		asm("nop");
 	}
