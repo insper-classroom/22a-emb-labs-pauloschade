@@ -198,7 +198,7 @@ const uint32_t ul_mask)
 
 	if ((ul_type == PIO_OUTPUT_0)) {
 		IorO = p_pio->PIO_ODSR;
-		} else {
+	} else {
 		IorO = p_pio->PIO_PDSR;
 	}
 
@@ -210,7 +210,7 @@ const uint32_t ul_mask)
 
 void _delay_ms(int ms)
 {
-	for (int i = 0; i < ms * 150000; i++)
+	for (int i = 0; i < ms * 115000; i++)
 	{
 		asm("nop");
 	}
