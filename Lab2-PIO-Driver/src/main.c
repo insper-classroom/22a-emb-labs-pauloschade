@@ -89,7 +89,14 @@
 /************************************************************************/
 /* prototypes                                                           */
 /************************************************************************/
-
+void _pio_set(Pio *p_pio, const uint32_t ul_mask);
+void _pio_clear(Pio *p_pio, const uint32_t ul_mask);
+void _pio_pull_up(Pio *p_pio, const uint32_t ul_mask, const uint32_t ul_pull_up_enable);
+void _pio_set_input(Pio *p_pio, const uint32_t ul_mask, const uint32_t ul_attribute);
+void _pio_set_output(Pio *p_pio, const uint32_t ul_mask, const uint32_t ul_default_level, const uint32_t ul_multidrive_enable, const uint32_t ul_pull_up_enable);
+uint32_t _pio_get(Pio *p_pio, const pio_type_t ul_type, const uint32_t ul_mask);
+void _delay_ms(int ms);
+void blink_led(Pio *p_pio, uint32_t ul_mask);
 void init(void);
 
 /************************************************************************/
@@ -124,7 +131,89 @@ void _pio_pull_up(Pio *p_pio, const uint32_t ul_mask,
 void _pio_set_input(Pio *p_pio, const uint32_t ul_mask,
         const uint32_t ul_attribute)
 {
+	_pio_pull_up(p_pio, ul_mask, ul_attribute & _PIO_PULLUP);
+	
+	/* Configure pin as input */
+	//Disable output
+	p_pio->PIO_ODR = ul_mask;
+	//Pin controlled by PIOc
+	p_pio->PIO_PER = ul_mask;
+	
+	// Activate IFER to enable filtering
+	if (ul_attribute & (_PIO_DEGLITCH | _PIO_DEBOUNCE)) {
+		p_pio->PIO_IFER = ul_mask;
+	} else {
+		p_pio->PIO_IFDR = ul_mask;
+		return;
+	}
+	
+	//IFSCDR disables register, therefore enables Deglitch
+	if (ul_attribute & PIO_DEGLITCH) 
+	{
+		p_pio->PIO_IFSCDR = ul_mask;
+		return;
+	}
+	
+	// If register is enabled, Debounce is activated
+	if (ul_attribute & PIO_DEBOUNCE) 
+	{
+		p_pio->PIO_IFSCER = ul_mask;
+	}
+}
 
+void _pio_set_output(Pio *p_pio, const uint32_t ul_mask,
+		const uint32_t ul_default_level,
+		const uint32_t ul_multidrive_enable,
+		const uint32_t ul_pull_up_enable)
+{
+	_pio_pull_up(p_pio, ul_mask, ul_pull_up_enable);
+	
+	/* Configure pin as output */
+	//Enable output
+	p_pio->PIO_OER = ul_mask;
+	//Pin controlled by PIOc
+	p_pio->PIO_PER = ul_mask;
+	
+	/* Set default value */
+	if (ul_default_level) {
+		_pio_set(p_pio, ul_mask);
+	}
+	else {
+		_pio_clear(p_pio, ul_mask);
+	}
+	
+	/* Enable multi-drive if necessary */
+	if (ul_multidrive_enable) 
+	{
+		p_pio->PIO_MDER = ul_mask;
+		return;
+	}
+	p_pio->PIO_MDDR = ul_mask;
+}
+
+uint32_t _pio_get(Pio *p_pio, const pio_type_t ul_type,
+const uint32_t ul_mask)
+{
+	uint32_t IorO;
+
+	if ((ul_type == PIO_OUTPUT_0)) {
+		IorO = p_pio->PIO_ODSR;
+		} else {
+		IorO = p_pio->PIO_PDSR;
+	}
+
+	if ((IorO & ul_mask) == 0) {
+		return 0;
+	}	
+	return 1;
+}
+
+void _delay_ms(int ms)
+{
+	for (int i = 0; i < ms * 150000; i++)
+	{
+		asm("nop");
+	}
 }
 
 void blink_led(Pio *p_pio, uint32_t ul_mask)
@@ -132,10 +221,10 @@ void blink_led(Pio *p_pio, uint32_t ul_mask)
 	for (int i = 0; i < 5; i++)
 	{
 		_pio_set(p_pio, ul_mask);
-		delay_ms(200);
+		_delay_ms(200);
 		// 0 on LED Pin
 		_pio_clear(p_pio, ul_mask);
-		delay_ms(200);
+		_delay_ms(200);
 	}
 }
 
@@ -163,22 +252,18 @@ void init(void)
 	//BUTTONS
 	//1
 	pmc_enable_periph_clk(BUT1_PIO_ID);
-	pio_set_input(BUT_PIO, BUT_PIO_IDX_MASK, _PIO_DEFAULT);
-	_pio_pull_up(BUT_PIO, BUT_PIO_IDX_MASK, 1);
+	_pio_set_input(BUT1_PIO, BUT1_PIO_IDX_MASK, _PIO_PULLUP | _PIO_DEBOUNCE);
+
 
 
 	//2
 	pmc_enable_periph_clk(BUT2_PIO_ID);
-	pio_set_input(BUT_PIO, BUT_PIO_IDX_MASK, _PIO_DEFAULT);
-	_pio_pull_up(BUT_PIO, BUT_PIO_IDX_MASK, 1);
+	_pio_set_input(BUT2_PIO, BUT2_PIO_IDX_MASK, _PIO_PULLUP | _PIO_DEBOUNCE);
 
 
 	//3
 	pmc_enable_periph_clk(BUT3_PIO_ID);
-	pio_set_input(BUT_PIO, BUT_PIO_IDX_MASK, _PIO_DEFAULT);
-	_pio_pull_up(BUT_PIO, BUT_PIO_IDX_MASK, 1);
-	
-
+	_pio_set_input(BUT3_PIO, BUT3_PIO_IDX_MASK, _PIO_PULLUP | _PIO_DEBOUNCE);
 	
 }
 
@@ -197,21 +282,21 @@ int main(void)
   while (1)
   {
 	  //Press button 1
-	  if(!pio_get(BUT1_PIO, PIO_INPUT, BUT1_PIO_IDX_MASK))
+	  if(!_pio_get(BUT1_PIO, PIO_INPUT, BUT1_PIO_IDX_MASK))
 	  {
 		blink_led(PIOA, LED1_PIO_IDX_MASK);
 	  } else {
 			_pio_clear(PIOA, LED1_PIO_IDX_MASK);
 	  }
 	  
-	  if(!pio_get(BUT2_PIO, PIO_INPUT, BUT2_PIO_IDX_MASK))
+	  if(!_pio_get(BUT2_PIO, PIO_INPUT, BUT2_PIO_IDX_MASK))
 	  {
 		blink_led(PIOC, LED2_PIO_IDX_MASK);
 	  } else {
 			_pio_clear(PIOC, LED2_PIO_IDX_MASK);
 	  }
 	  
-	  if(!pio_get(BUT3_PIO, PIO_INPUT, BUT3_PIO_IDX_MASK))
+	  if(!_pio_get(BUT3_PIO, PIO_INPUT, BUT3_PIO_IDX_MASK))
 	  {
 		blink_led(PIOB, LED3_PIO_IDX_MASK);
 	  } else {
