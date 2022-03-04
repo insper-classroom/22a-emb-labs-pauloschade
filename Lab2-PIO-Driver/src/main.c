@@ -147,7 +147,7 @@ void _pio_set_input(Pio *p_pio, const uint32_t ul_mask,
 		return;
 	}
 	
-	//IFSCDR disables register, therefore enables Deglitch
+	
 	if (ul_attribute & PIO_DEGLITCH) 
 	{
 		p_pio->PIO_IFSCDR = ul_mask;
