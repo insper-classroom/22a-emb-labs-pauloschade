@@ -42,6 +42,7 @@ volatile int freq_flag;
 volatile int start_counter;
 volatile char but_flag;
 volatile char decrease_flag;
+volatile char stop_led_flag;
 
 /************************************************************************/
 /* prototypes                                                   */
@@ -74,7 +75,7 @@ void but1_callback(void)
 
 void but2_callback(void)
 {
-	but_flag = 1;
+	stop_led_flag = 1;
 }
 
 void but3_callback(void)
@@ -86,14 +87,53 @@ void but3_callback(void)
 /* funções                                                              */
 /************************************************************************/
 // pisca led N vez no periodo T
+void draw_bar(int n)
+{
+	int x_cord, y_cord, radius;
+	x_cord = 0;
+	y_cord = 23;
+	radius = 5;
+	gfx_mono_draw_string("           ", 0, 16, &sysfont);
+	for (int i = 0; i < n;  i++)
+	{
+		gfx_mono_draw_filled_circle(x_cord + radius + 5, y_cord, radius, GFX_PIXEL_SET , GFX_WHOLE);
+		x_cord += 2 * radius + 5;
+	}
+		
+}
+
 void pisca_led(int n, int t){
 	for (int i=0;i<n;i++){
+		if (stop_led_flag) {
+			stop_led_flag = 0;
+			return;
+		}
+		draw_bar(n-i - 1);
 		pio_clear(LED_PIO, LED_IDX_MASK);
 		delay_ms(t);
 		pio_set(LED_PIO, LED_IDX_MASK);
 		delay_ms(t);
 	}
 }
+
+// void pisca_led(int n, int t){
+// 	
+// 	if (stop_led_flag) {
+// 		stop_led_flag = 0;
+// 		return;
+// 	}
+// 	
+// 	if (n == 1)
+// 	{
+// 		return;
+// 	}
+// 	draw_bar(n - 2);
+// 	pio_clear(LED_PIO, LED_IDX_MASK);
+// 	delay_ms(t);
+// 	pio_set(LED_PIO, LED_IDX_MASK);
+// 	delay_ms(t);
+// 	pisca_led(n-1, t);
+// }
 
 void decrease(int *p_freq)
 {
@@ -173,11 +213,12 @@ int main (void)
 		if(but_flag)
 		{
 			pisca_led(5, 100000/freq);
+			gfx_mono_draw_string("           ", 0, 16, &sysfont);
+			sprintf(str, "%d", freq);
+			gfx_mono_draw_string(str, 50, 16, &sysfont);
 			but_flag = 0;
 		}
-		
-		if(decrease_flag)
-		{
+		if(decrease_flag) {
 			decrease(&freq);
 			gfx_mono_draw_string("     ", 50, 16, &sysfont);
 			sprintf(str, "%d", freq);
