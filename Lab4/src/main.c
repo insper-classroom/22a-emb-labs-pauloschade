@@ -16,6 +16,7 @@ volatile char but1_flag;
 volatile char but2_flag;
 volatile char but3_flag;
 volatile char flag_rtc_alarm;
+volatile char flag_update_timer;
 
 /************************************************************************/
 /* variables                                                   */
@@ -67,14 +68,14 @@ void pin_toggle(Pio *pio, uint32_t mask) {
 	pio_get_output_data_status(pio, mask) ? pio_clear(pio, mask) : pio_set(pio,mask);
 }
 
-void pisca_led (int n, int t) {
-	for (int i=0;i<n;i++){
-		pio_clear(LED3_PIO, LED3_IDX_MASK);
-		delay_ms(t);
-		pio_set(LED3_PIO, LED3_IDX_MASK);
-		delay_ms(t);
-	}
-}
+// void pisca_led (int n, int t) {
+// 	for (int i=0;i<n;i++){
+// 		pio_clear(LED3_PIO, LED3_IDX_MASK);
+// 		delay_ms(t);
+// 		pio_set(LED3_PIO, LED3_IDX_MASK);
+// 		delay_ms(t);
+// 	}
+// }
 static float get_time_rtt(){
 	uint ul_previous_time = rtt_read_timer_value(RTT);
 }
@@ -88,20 +89,36 @@ void set_alarm_but1() {
 	rtc_set_date_alarm(RTC, 1, current_month, 1, current_day);
 	rtc_set_time_alarm(RTC, 1, current_hour, 1, current_min, 1, current_sec + 20);
 }
+
+void update_timer() {
+	gfx_mono_draw_string("        ", 5, 16, &sysfont);
+	char str[15];
+	uint32_t current_hour, current_min, current_sec;
+	rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+	sprintf(str, "%d:%d:%d", current_hour,current_min,current_sec);
+	gfx_mono_draw_string(str, 5, 16, &sysfont);
+	
+}
 /************************************************************************/
 /* handlers                                                             */
 /************************************************************************/
 
-void TC1_Handler(void) {
+void TC0_Handler(void) {
 	
-	volatile uint32_t status = tc_get_status(TC0, 1);
+	volatile uint32_t status = tc_get_status(TC0, 0);
 	pin_toggle(LED_PIO, LED_IDX_MASK);
+}
+
+void TC1_Handler(void) {
+
+	volatile uint32_t status = tc_get_status(TC0, 1);
+	pin_toggle(LED1_PIO, LED1_IDX_MASK);
 }
 
 void TC2_Handler(void) {
 
 	volatile uint32_t status = tc_get_status(TC0, 2);
-	pin_toggle(LED1_PIO, LED1_IDX_MASK);
+	pin_toggle(LED3_PIO, LED3_IDX_MASK);
 }
 
 void RTT_Handler(void) {
@@ -122,15 +139,15 @@ void RTT_Handler(void) {
 void RTC_Handler(void) {
 	uint32_t ul_status = rtc_get_status(RTC);
 	
-	/* seccond tick */
-	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC) {
-		// o código para irq de segundo vem aqui
-	}
-	
 	/* Time or date alarm */
 	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM) {
 		// o código para irq de alame vem aqui
 		flag_rtc_alarm = 1;
+	}
+	
+	/* seccond tick */
+	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC) {
+		flag_update_timer = 1;
 	}
 
 	rtc_clear_status(RTC, RTC_SCCR_SECCLR);
@@ -151,15 +168,17 @@ void io_init(void)
 	config_button(BUT2_PIO, BUT2_IDX_MASK, BUT2_PIO_ID, but2_callback, 1);
 	config_button(BUT3_PIO, BUT3_IDX_MASK, BUT3_PIO_ID, but3_callback, 1);
 	
+	pmc_enable_periph_clk(LED_PIO_ID);
+	pio_configure(LED_PIO, PIO_OUTPUT_1, LED_IDX_MASK, PIO_DEFAULT);
 	
 	pmc_enable_periph_clk(LED1_PIO_ID);
-	pio_configure(LED1_PIO, PIO_OUTPUT_0, LED1_IDX_MASK, PIO_DEFAULT);
+	pio_configure(LED1_PIO, PIO_OUTPUT_1, LED1_IDX_MASK, PIO_DEFAULT);
 	
 	pmc_enable_periph_clk(LED2_PIO_ID);
-	pio_configure(LED2_PIO, PIO_OUTPUT_0, LED2_IDX_MASK, PIO_DEFAULT);
+	pio_configure(LED2_PIO, PIO_OUTPUT_1, LED2_IDX_MASK, PIO_DEFAULT);
 	
 	pmc_enable_periph_clk(LED3_PIO_ID);
-	pio_configure(LED3_PIO, PIO_OUTPUT_0, LED3_IDX_MASK, PIO_DEFAULT);
+	pio_configure(LED3_PIO, PIO_OUTPUT_1, LED3_IDX_MASK, PIO_DEFAULT);
 }
 
 int main (void)
@@ -173,32 +192,40 @@ int main (void)
 	io_init();
 	
 	//5HZ SAME70 LED
-  TC_init(TC0, ID_TC1, 1, 5);
-  tc_start(TC0, 1);
+  TC_init(TC0, ID_TC0, 0, 5);
+  tc_start(TC0, 0);
 	
 	//4HZ OLED LED
+	TC_init(TC0, ID_TC1, 1, 4);
+	tc_start(TC0, 1);
+	
 	TC_init(TC0, ID_TC2, 2, 4);
-	tc_start(TC0, 2);
 	
 	RTT_init(4, 16, RTT_MR_ALMIEN); 
 
 
 	//RTC
 	calendar rtc_initial = {2018, 3, 19, 12, 15, 45 ,1};
-	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN);
+	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN | RTC_IER_SECEN);
+
 
   /* Insert application code here, after the board has been initialized. */
 	while(1) {
 		pmc_sleep(SAM_PM_SMODE_SLEEP_WFI);
 		
 		if(flag_rtc_alarm){
-			pisca_led(5, 200);
+			tc_start(TC0, 2);
 			flag_rtc_alarm = 0;
 		}
 		
 		if(but1_flag) {
 			set_alarm_but1();
 			but1_flag = 0;
+		}
+		
+		if (flag_update_timer) {
+			update_timer();
+			flag_update_timer = 0;
 		}
 	}
 }
