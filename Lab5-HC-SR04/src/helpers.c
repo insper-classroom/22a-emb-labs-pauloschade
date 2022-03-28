@@ -71,10 +71,10 @@ void RTT_init(float freqPrescale, uint32_t IrqNPulses, uint32_t rttIRQSource) {
 /* configs                                                              */
 /************************************************************************/
 
-void config_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int it_rise) {
+void config_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int it_rise, int filter) {
 	pmc_enable_periph_clk(ul_id);
+	filter ? pio_configure(p_pio, PIO_INPUT, ul_mask, PIO_PULLUP | PIO_DEBOUNCE) : pio_configure(p_pio, PIO_INPUT, ul_mask, PIO_DEFAULT);
 
-	pio_configure(p_pio, PIO_INPUT, ul_mask, PIO_PULLUP | PIO_DEBOUNCE);
 	pio_set_debounce_filter(p_pio, ul_mask, 60);
 
 	uint32_t but_attr = (it_rise ? PIO_IT_RISE_EDGE : PIO_IT_EDGE);

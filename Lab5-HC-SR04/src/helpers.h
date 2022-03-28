@@ -27,6 +27,6 @@ void RTT_init(float freqPrescale, uint32_t IrqNPulses, uint32_t rttIRQSource);
 /* configs                                                              */
 /************************************************************************/
 
-void config_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int it_rise);
+void config_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int it_rise, int filter);
 
 #endif // HELPERS_H_

@@ -14,20 +14,20 @@ volatile int start_counter;
 volatile char but1_flag;
 volatile char echo_flag;
 volatile char rtt_start;
-double freq = (float) 1/(2*0.000058);
+int freq = 1/(2*0.000058);
+volatile uint32_t rtt_time = 0;
 
 /************************************************************************/
 /* variables                                                   */
 /************************************************************************/
-
+#define SOUND_SPEED 340.0
 
 /************************************************************************/
 /* prototypes                                                   */
 /************************************************************************/
 void but1_callback(void);
 void echo_callback(void);
-
-
+static uint32_t get_time_rtt();
 void io_init(void);
 
 /************************************************************************/
@@ -40,11 +40,12 @@ void but1_callback(void)
 
 void echo_callback(void)
 {
-// 	if (!echo_flag) {
-// 		RTT_init(freq, 0, 0);
-// 	}
-	rtt_start = pio_get(BUT1_PIO, PIO_INPUT, BUT1_IDX_MASK) ? 1 : 0;
-	echo_flag = 1;
+	if (pio_get(ECHO_PIO, PIO_INPUT, ECHO_IDX_MASK)) {
+		 RTT_init(freq, 0, 0);
+	} else { 
+		echo_flag = 1;
+		rtt_time = get_time_rtt();
+	}
 }
 /************************************************************************/
 /* functions                                                             */
@@ -53,12 +54,11 @@ void pin_toggle(Pio *pio, uint32_t mask) {
 	pio_get_output_data_status(pio, mask) ? pio_clear(pio, mask) : pio_set(pio,mask);
 }
 
-static float get_time_rtt(){
-	uint ul_previous_time = rtt_read_timer_value(RTT);
-	return ul_previous_time;
+static uint32_t get_time_rtt() {
+	return rtt_read_timer_value(RTT);
 }
 
-void trig_pulse(){
+void pulse() {
 	pio_set(TRIG_PIO, TRIG_IDX_MASK);
 	delay_us(10);
 	pio_clear(TRIG_PIO, TRIG_IDX_MASK);
@@ -72,14 +72,12 @@ void set_alarm_but1();
 void RTT_Handler(void) {
 	uint32_t ul_status;
 
+	/* Get RTT status - ACK */
 	ul_status = rtt_get_status(RTT);
-
-	if ((ul_status & RTT_SR_ALMS) == RTT_SR_ALMS) {
-		RTT_init(4, 16, 0);
-	}
 	
+	/* IRQ due to Time has changed */
 	if ((ul_status & RTT_SR_RTTINC) == RTT_SR_RTTINC) {
-		pin_toggle(LED2_PIO, LED2_IDX_MASK);
+		//pin_toggle(TRIG_PIO, TRIG_IDX_MASK);    // BLINK Led
 	}
 
 }
@@ -91,11 +89,11 @@ void RTT_Handler(void) {
 /************************************************************************/
 void io_init(void)
 {
-	config_button(BUT1_PIO, BUT1_IDX_MASK, BUT1_PIO_ID, but1_callback, 0); 
-	config_button(ECHO_PIO, ECHO_IDX_MASK, ECHO_PIO_ID, echo_callback, 1);
+	config_button(BUT1_PIO, BUT1_IDX_MASK, BUT1_PIO_ID, but1_callback, 1, 1); 
+	config_button(ECHO_PIO, ECHO_IDX_MASK, ECHO_PIO_ID, echo_callback, 0, 0);
 	
 	pmc_enable_periph_clk(TRIG_PIO_ID);
-	pio_configure(TRIG_PIO, PIO_OUTPUT_1, TRIG_IDX_MASK, PIO_DEFAULT);
+	pio_configure(TRIG_PIO, PIO_OUTPUT_1, TRIG_IDX_MASK, PIO_PULLUP);
 }
 
 int main (void)
@@ -103,29 +101,27 @@ int main (void)
 	board_init();
 	sysclk_init();
 	delay_init();
+	
+	char str[10];
+	float distance;
 
   // Init OLED
 	gfx_mono_ssd1306_init();
-	io_init();
-	
-	
-	RTT_init(4, 16, RTT_MR_ALMIEN); 
-
-
-
+	io_init(); 
+	gfx_mono_draw_string("init", 0, 16, &sysfont);
 
   /* Insert application code here, after the board has been initialized. */
 	while(1) {
 		if(but1_flag) {
-			trig_pulse();
+			pulse();
 			but1_flag = 0;
 		}
 		if(echo_flag) {
-			if(rtt_start) {
-				RTT_init(freq, 0, 0);
-			} else {
-				
-			}
+			distance = (SOUND_SPEED*rtt_time)/(2.0 * freq);
+			gfx_mono_draw_string("     ", 0, 16, &sysfont);
+			sprintf(str, "%f", distance);
+			gfx_mono_draw_string(str, 0, 16, &sysfont);
+			echo_flag = 0;
 		}
 	}
 }
