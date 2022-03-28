@@ -21,6 +21,8 @@ volatile uint32_t rtt_time = 0;
 /* variables                                                   */
 /************************************************************************/
 #define SOUND_SPEED 340.0
+#define MAX_X 128
+#define MAX_Y 20.0
 
 /************************************************************************/
 /* prototypes                                                   */
@@ -29,6 +31,7 @@ void but1_callback(void);
 void echo_callback(void);
 static uint32_t get_time_rtt();
 void io_init(void);
+void erase_oled();
 
 /************************************************************************/
 /* callbacks                                                              */
@@ -50,6 +53,10 @@ void echo_callback(void)
 /************************************************************************/
 /* functions                                                             */
 /************************************************************************/
+void erase_oled() {
+	gfx_mono_draw_string("             ", 0, 5, &sysfont);
+	gfx_mono_draw_string("             ", 0, 16, &sysfont);
+}
 void pin_toggle(Pio *pio, uint32_t mask) {
 	pio_get_output_data_status(pio, mask) ? pio_clear(pio, mask) : pio_set(pio,mask);
 }
@@ -103,12 +110,12 @@ int main (void)
 	delay_init();
 	
 	char str[10];
-	float distance;
+	float distance = 0.0;
+	int n = 0;
 
   // Init OLED
 	gfx_mono_ssd1306_init();
-	io_init(); 
-	gfx_mono_draw_string("init", 0, 16, &sysfont);
+	io_init();
 
   /* Insert application code here, after the board has been initialized. */
 	while(1) {
@@ -117,10 +124,26 @@ int main (void)
 			but1_flag = 0;
 		}
 		if(echo_flag) {
-			distance = (SOUND_SPEED*rtt_time)/(2.0 * freq);
-			gfx_mono_draw_string("     ", 0, 16, &sysfont);
-			sprintf(str, "%f", distance);
-			gfx_mono_draw_string(str, 0, 16, &sysfont);
+			distance = (SOUND_SPEED*rtt_time*100)/(2.0 * freq);
+			if (n == 0) {
+				erase_oled();
+			}
+
+			if(distance > 400 || distance < 2) {
+				erase_oled();
+				gfx_mono_draw_string("ERROR", 0, 16, &sysfont);
+				n = 0;
+			} else {
+				int y_dist =  MAX_Y * (1 - distance/400.0);
+				gfx_mono_draw_string(".", n, y_dist, &sysfont);
+				if (n < MAX_X - 7) {
+					n += 5;
+					} else {
+					n = 0;
+				}
+			}
+			
+			
 			echo_flag = 0;
 		}
 	}
