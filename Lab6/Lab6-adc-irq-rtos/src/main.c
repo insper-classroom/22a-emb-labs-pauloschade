@@ -39,7 +39,6 @@ QueueHandle_t xQueuePROC;
 
 typedef struct {
   uint value;
-	uint avg;
 } adcData;
 
 /************************************************************************/
@@ -109,6 +108,12 @@ static void AFEC_pot_Callback(void) {
 /************************************************************************/
 
 static void task_adc(void *pvParameters) {
+	int avg;
+	while (1) {
+		if (xQueueReceive(xQueueADC, &avg, 1000)) {
+			printf("Average: %d \n", avg);
+		}
+	}
 }
 
 
@@ -125,14 +130,13 @@ static void task_proc(void *pvParameters) {
 	int total = 0;
 
   while (1) {
-		if(counter > 9) {
-			adc.avg = total/counter;
-			xQueueSendFromISR(xQueueADC, &adc, &xHigherPriorityTaskWoken);
-			counter = 0;
-			total = 0;
-		}
     if (xQueueReceive(xQueuePROC, &(adc), 1000)) {
-      printf("ADC: %d \n", adc.value);
+			if(counter > 9) {
+				int avg = total/counter;
+				xQueueSend(xQueueADC, &avg, 10);
+				counter = 0;
+				total = 0;
+			}
 			total += adc.value;
 			counter++;
     } else {
