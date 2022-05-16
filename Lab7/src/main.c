@@ -15,6 +15,22 @@
 #define LV_HOR_RES_MAX          (320)
 #define LV_VER_RES_MAX          (240)
 
+LV_FONT_DECLARE(dseg70);
+LV_FONT_DECLARE(dseg50);
+LV_FONT_DECLARE(dseg20);
+SemaphoreHandle_t xSemaphoreRTC;
+
+
+typedef struct  {
+	uint32_t year;
+	uint32_t month;
+	uint32_t day;
+	uint32_t week;
+	uint32_t hour;
+	uint32_t minute;
+	uint32_t seccond;
+} calendar;
+
 /*A static or global variable to store the buffers*/
 static lv_disp_draw_buf_t disp_buf;
 
@@ -27,6 +43,9 @@ static  lv_obj_t * labelBtnMenu;
 static  lv_obj_t * labelBtnClock;
 static  lv_obj_t * labelBtnUp;
 static  lv_obj_t * labelBtnDown;
+static lv_obj_t * labelFloor;
+static lv_obj_t * labelTime;
+static lv_obj_t * labelSet;
 
 /************************************************************************/
 /* RTOS                                                                 */
@@ -34,6 +53,8 @@ static  lv_obj_t * labelBtnDown;
 
 #define TASK_LCD_STACK_SIZE                (1024*6/sizeof(portSTACK_TYPE))
 #define TASK_LCD_STACK_PRIORITY            (tskIDLE_PRIORITY)
+#define TASK_RTC_STACK_SIZE                (1024*6/sizeof(portSTACK_TYPE))
+#define TASK_RTC_STACK_PRIORITY            (tskIDLE_PRIORITY)
 
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask,  signed char *pcTaskName);
 extern void vApplicationIdleHook(void);
@@ -53,6 +74,32 @@ extern void vApplicationTickHook(void) { }
 
 extern void vApplicationMallocFailedHook(void) {
 	configASSERT( ( volatile void * ) NULL );
+}
+
+
+/************************************************************************/
+/* HANDLERS RTOS                                                        */
+/************************************************************************/
+void RTC_Handler(void) {
+	uint32_t ul_status = rtc_get_status(RTC);
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	
+	/* Time or date alarm */
+	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM) {
+		// o código para irq de alame vem aqui
+	}
+	
+	/* seccond tick */
+	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC) {
+		xSemaphoreGiveFromISR(xSemaphoreRTC, &xHigherPriorityTaskWoken);
+	}
+
+	rtc_clear_status(RTC, RTC_SCCR_SECCLR);
+	rtc_clear_status(RTC, RTC_SCCR_ALRCLR);
+	rtc_clear_status(RTC, RTC_SCCR_ACKCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TIMCLR);
+	rtc_clear_status(RTC, RTC_SCCR_CALCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TDERRCLR);
 }
 
 /************************************************************************/
@@ -107,25 +154,25 @@ static void clock_handler(lv_event_t * e) {
 }
 
 static void up_handler(lv_event_t * e) {
-	lv_event_code_t code = lv_event_get_code(e);
-
-	if(code == LV_EVENT_CLICKED) {
-		LV_LOG_USER("Clicked");
-	}
-	else if(code == LV_EVENT_VALUE_CHANGED) {
-		LV_LOG_USER("Toggled");
-	}
+    lv_event_code_t code = lv_event_get_code(e);
+    char *c;
+    int temp;
+    if(code == LV_EVENT_CLICKED) {
+	    c = lv_label_get_text(labelSet);
+	    temp = atoi(c);
+	    lv_label_set_text_fmt(labelSet, "%02d", temp + 1);
+    }
 }
 
 static void down_handler(lv_event_t * e) {
-	lv_event_code_t code = lv_event_get_code(e);
-
-	if(code == LV_EVENT_CLICKED) {
-		LV_LOG_USER("Clicked");
-	}
-	else if(code == LV_EVENT_VALUE_CHANGED) {
-		LV_LOG_USER("Toggled");
-	}
+    lv_event_code_t code = lv_event_get_code(e);
+    char *c;
+    int temp;
+    if(code == LV_EVENT_CLICKED) {
+	    c = lv_label_get_text(labelSet);
+	    temp = atoi(c);
+	    lv_label_set_text_fmt(labelSet, "%02d", temp - 1);
+    }
 }
 
 void bottom_left(void) {
@@ -186,8 +233,8 @@ void bottom_right(void) {
 	lv_obj_add_style(downBut, &style, 0);
 	
 	lv_obj_t * upBtn = lv_btn_create(lv_scr_act());
-	lv_obj_add_event_cb(upBtn, event_handler, LV_EVENT_ALL, NULL);
-	lv_obj_align_to(upBtn, downBut ,LV_ALIGN_OUT_LEFT_MID, -20, y_disp/2);
+	lv_obj_add_event_cb(upBtn, up_handler, LV_EVENT_ALL, NULL);
+	lv_obj_align_to(upBtn, downBut ,LV_ALIGN_OUT_LEFT_MID, -30, y_disp/2);
 	
 	labelBtnUp = lv_label_create(upBtn);
 	lv_label_set_text(labelBtnUp, "[ " LV_SYMBOL_UP);
@@ -195,9 +242,60 @@ void bottom_right(void) {
 	lv_obj_add_style(upBtn, &style, 0);
 }
 
+void center(void) {
+	lv_coord_t y_disp_top = 10;
+	lv_coord_t x_disp_top = -20;
+	labelFloor = lv_label_create(lv_scr_act());
+	lv_obj_align(labelFloor, LV_ALIGN_LEFT_MID, 35 , -45);
+	lv_obj_set_style_text_font(labelFloor, &dseg70, LV_STATE_DEFAULT);
+	lv_obj_set_style_text_color(labelFloor, lv_color_white(), LV_STATE_DEFAULT);
+	lv_label_set_text_fmt(labelFloor, "%02d", 23);
+	
+	labelTime = lv_label_create(lv_scr_act());
+	lv_obj_align(labelTime, LV_ALIGN_TOP_RIGHT, x_disp_top , y_disp_top);
+	lv_obj_set_style_text_font(labelTime, &dseg20, LV_STATE_DEFAULT);
+	lv_obj_set_style_text_color(labelTime, lv_color_white(), LV_STATE_DEFAULT);
+	
+	labelSet = lv_label_create(lv_scr_act());
+	lv_obj_align_to(labelSet, labelTime ,LV_ALIGN_OUT_BOTTOM_MID, -30 , 10);
+	lv_obj_set_style_text_font(labelSet, &dseg50, LV_STATE_DEFAULT);
+	lv_obj_set_style_text_color(labelSet, lv_color_white(), LV_STATE_DEFAULT);
+	lv_label_set_text_fmt(labelSet, "%02d", 22);
+}
+
 void lv_termostato(void) {
 	bottom_left();
 	bottom_right();
+	center();
+}
+/************************************************************************/
+/* FUNCS                                                                */
+/************************************************************************/
+void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type) {
+	/* Configura o PMC */
+	pmc_enable_periph_clk(ID_RTC);
+
+	/* Default RTC configuration, 24-hour mode */
+	rtc_set_hour_mode(rtc, 0);
+
+	/* Configura data e hora manualmente */
+	rtc_set_date(rtc, t.year, t.month, t.day, t.week);
+	rtc_set_time(rtc, t.hour, t.minute, t.seccond);
+
+	/* Configure RTC interrupts */
+	NVIC_DisableIRQ(id_rtc);
+	NVIC_ClearPendingIRQ(id_rtc);
+	NVIC_SetPriority(id_rtc, 4);
+	NVIC_EnableIRQ(id_rtc);
+
+	/* Ativa interrupcao via alarme */
+	rtc_enable_interrupt(rtc,  irq_type);
+}
+
+void update_timer() {
+	uint32_t current_hour, current_min, current_sec;
+	rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+	lv_label_set_text_fmt(labelTime, "%d:%d:%d", current_hour, current_min, current_sec);
 }
 /************************************************************************/
 /* TASKS                                                                */
@@ -213,6 +311,16 @@ static void task_lcd(void *pvParameters) {
 		lv_tick_inc(50);
 		lv_task_handler();
 		vTaskDelay(50);
+	}
+}
+
+static void task_rtc(void *pvParameters) {
+	calendar rtc_initial = {0, 0, 0, 0, 0, 0 ,0};
+	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_SECEN);
+	for(;;) {
+		if (xSemaphoreTake(xSemaphoreRTC, 0)) {
+			update_timer();
+		}
 	}
 }
 
@@ -306,10 +414,16 @@ int main(void) {
 	configure_lcd();
 	configure_touch();
 	configure_lvgl();
+	
+	xSemaphoreRTC = xSemaphoreCreateBinary();
 
 	/* Create task to control oled */
 	if (xTaskCreate(task_lcd, "LCD", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
 		printf("Failed to create lcd task\r\n");
+	}
+	
+	if (xTaskCreate(task_rtc, "RTC", TASK_RTC_STACK_SIZE, NULL, TASK_RTC_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create rtc task\r\n");
 	}
 	
 	/* Start the scheduler. */
