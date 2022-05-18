@@ -7,6 +7,7 @@
 #include "ili9341.h"
 #include "lvgl.h"
 #include "touch/touch.h"
+#include "wclock.h"
 
 /************************************************************************/
 /* LCD / LVGL                                                           */
@@ -44,12 +45,18 @@ static  lv_obj_t * labelBtnClock;
 static  lv_obj_t * labelBtnUp;
 static  lv_obj_t * labelBtnDown;
 static lv_obj_t * labelFloor;
+static lv_obj_t * labelFloorDecimal;
 static lv_obj_t * labelTime;
 static lv_obj_t * labelSet;
+static lv_obj_t * labelFire;
+static lv_obj_t * labelClock;
+static lv_obj_t * labelHome;
 
 /************************************************************************/
 /* RTOS                                                                 */
 /************************************************************************/
+
+SemaphoreHandle_t xPower;
 
 #define TASK_LCD_STACK_SIZE                (1024*6/sizeof(portSTACK_TYPE))
 #define TASK_LCD_STACK_PRIORITY            (tskIDLE_PRIORITY)
@@ -120,14 +127,15 @@ lv_obj_t * create_and_align(int x_disp, int y_disp, lv_event_cb_t event_cb, lv_a
 // 		lv_obj_center(labelBtn);
 // }
 
+volatile char power_flag;
+
 static void event_handler(lv_event_t * e) {
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	lv_event_code_t code = lv_event_get_code(e);
 
 	if(code == LV_EVENT_CLICKED) {
-		LV_LOG_USER("Clicked");
-	}
-	else if(code == LV_EVENT_VALUE_CHANGED) {
-		LV_LOG_USER("Toggled");
+		power_flag = !power_flag;
+		xSemaphoreGiveFromISR(xPower, xHigherPriorityTaskWoken);
 	}
 }
 
@@ -203,14 +211,20 @@ void bottom_left(void) {
 	lv_obj_center(labelBtnMenu);
 	lv_obj_add_style(btnMenu, &style, 0);
 	
-	lv_obj_t * btnClock = lv_btn_create(lv_scr_act());
+	lv_obj_t * btnClock = lv_imgbtn_create(lv_scr_act());
+	lv_imgbtn_set_src(btnClock, LV_IMGBTN_STATE_RELEASED, NULL, NULL, &wclock);
 	lv_obj_add_event_cb(btnClock, clock_handler, LV_EVENT_ALL, NULL);
-	lv_obj_align_to(btnClock, btnMenu, LV_ALIGN_OUT_RIGHT_MID, 0, y_disp/2);
+	lv_obj_align_to(btnClock, btnMenu, LV_ALIGN_OUT_RIGHT_MID, -95, 55);
 
-	labelBtnClock = lv_label_create(btnClock);
-	lv_label_set_text(labelBtnClock, LV_SYMBOL_SETTINGS " ]");
-	lv_obj_center(labelBtnClock);
+	labelBtnClock = lv_label_create(lv_scr_act());
+	lv_label_set_text(labelBtnClock, " ]");
+	lv_obj_align_to(labelBtnClock, btn1, LV_ALIGN_OUT_RIGHT_MID, 100, 0);
 	lv_obj_add_style(btnClock, &style, 0);
+	
+	lv_obj_t * clockBtn = lv_imgbtn_create(lv_scr_act());
+	lv_imgbtn_set_src(clockBtn, LV_IMGBTN_STATE_RELEASED, NULL, NULL, &wclock);
+	lv_obj_add_event_cb(clockBtn, clock_handler, LV_EVENT_ALL, NULL);
+	lv_obj_align_to(clockBtn, btnMenu ,LV_ALIGN_OUT_RIGHT_MID, 20, y_disp);
 }
 
 void bottom_right(void) {
@@ -240,16 +254,33 @@ void bottom_right(void) {
 	lv_label_set_text(labelBtnUp, "[ " LV_SYMBOL_UP);
 	lv_obj_center(labelBtnUp);
 	lv_obj_add_style(upBtn, &style, 0);
+	
+	labelFire = lv_label_create(lv_scr_act());
+	lv_label_set_text(labelFire, LV_SYMBOL_CHARGE);
+	lv_obj_align_to(labelFire, downBut, LV_ALIGN_OUT_TOP_MID, 10, -40);
+	lv_obj_add_style(labelFire, &style, 0);
+	
+	labelHome = lv_label_create(lv_scr_act());
+	lv_label_set_text(labelHome, LV_SYMBOL_HOME);
+	lv_obj_align_to(labelHome, upBtn, LV_ALIGN_OUT_TOP_LEFT, -20, -10);
+	lv_obj_add_style(labelHome, &style, 0);
 }
 
 void center(void) {
 	lv_coord_t y_disp_top = 10;
 	lv_coord_t x_disp_top = -20;
+	
 	labelFloor = lv_label_create(lv_scr_act());
 	lv_obj_align(labelFloor, LV_ALIGN_LEFT_MID, 35 , -45);
 	lv_obj_set_style_text_font(labelFloor, &dseg70, LV_STATE_DEFAULT);
 	lv_obj_set_style_text_color(labelFloor, lv_color_white(), LV_STATE_DEFAULT);
 	lv_label_set_text_fmt(labelFloor, "%02d", 23);
+	
+	labelFloorDecimal = lv_label_create(lv_scr_act());
+	lv_obj_align_to(labelFloorDecimal, labelFloor ,LV_ALIGN_OUT_RIGHT_MID, -0 , 0);
+	lv_obj_set_style_text_font(labelFloorDecimal, &dseg50, LV_STATE_DEFAULT);
+	lv_obj_set_style_text_color(labelFloorDecimal, lv_color_white(), LV_STATE_DEFAULT);
+	lv_label_set_text_fmt(labelFloorDecimal, ".%d", 4);
 	
 	labelTime = lv_label_create(lv_scr_act());
 	lv_obj_align(labelTime, LV_ALIGN_TOP_RIGHT, x_disp_top , y_disp_top);
@@ -267,6 +298,23 @@ void lv_termostato(void) {
 	bottom_left();
 	bottom_right();
 	center();
+}
+
+void lv_power(void) {
+	static lv_style_t style;
+	lv_style_init(&style);
+	lv_style_set_bg_color(&style, lv_color_black());
+	lv_style_set_border_width(&style, 0);
+	
+	
+	lv_obj_t * btn1 = lv_btn_create(lv_scr_act());
+	lv_obj_add_event_cb(btn1, event_handler, LV_EVENT_ALL, NULL);
+	lv_obj_align(btn1, LV_ALIGN_BOTTOM_LEFT, 10, -20);
+
+	labelBtn1 = lv_label_create(btn1);
+	lv_label_set_text(labelBtn1, LV_SYMBOL_POWER);
+	lv_obj_center(labelBtn1);
+	lv_obj_add_style(btn1, &style, 0);
 }
 /************************************************************************/
 /* FUNCS                                                                */
@@ -308,6 +356,15 @@ static void task_lcd(void *pvParameters) {
 	lv_termostato();
 
 	for (;;)  {
+		if (xSemaphoreTake(xPower,0)) {
+			if(power_flag) {
+				lv_obj_clean(lv_scr_act());
+				lv_power();
+			} else {
+				lv_obj_clean(lv_scr_act());
+				lv_termostato();
+			}
+		}
 		lv_tick_inc(50);
 		lv_task_handler();
 		vTaskDelay(50);
@@ -416,6 +473,7 @@ int main(void) {
 	configure_lvgl();
 	
 	xSemaphoreRTC = xSemaphoreCreateBinary();
+	xPower = xSemaphoreCreateBinary();
 
 	/* Create task to control oled */
 	if (xTaskCreate(task_lcd, "LCD", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {

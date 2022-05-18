@@ -411,7 +411,7 @@ src/main.d src/main.o: ../src/main.c ../src/asf.h \
  ../src/ASF/thirdparty/lvgl8/src/extra/libs/freetype/../../../lvgl.h \
  ../src/ASF/thirdparty/lvgl8/src/extra/libs/rlottie/lv_rlottie.h \
  ../src/ASF/thirdparty/lvgl8/src/extra/libs/rlottie/../../../lvgl.h \
- ../src/touch/touch.h
+ ../src/touch/touch.h ../src/wclock.h
 
 ../src/asf.h:
 
@@ -1260,3 +1260,5 @@ c:\program\ files\ (x86)\7.0\toolchain\arm\arm-gnu-toolchain\arm-none-eabi\inclu
 ../src/ASF/thirdparty/lvgl8/src/extra/libs/rlottie/../../../lvgl.h:
 
 ../src/touch/touch.h:
+
+../src/wclock.h:
